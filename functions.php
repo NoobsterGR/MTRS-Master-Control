@@ -1,0 +1,498 @@
+<?php
+/**
+ * Theme functions: init, enqueue scripts and styles, include required files and widgets.
+ *
+ * @package Bravisthemes
+ * @since Seaside 1.0
+ */
+if(!defined('THEME_DEV_MODE_ELEMENTS') && is_user_logged_in()){
+    define('THEME_DEV_MODE_ELEMENTS', true);
+}
+
+if(!defined('DEV_MODE')){define('DEV_MODE', true);}
+require_once get_template_directory() . '/inc/classes/class-main.php';
+
+if ( is_admin() ){ 
+	require_once get_template_directory() . '/inc/admin/admin-init.php'; 
+}
+/**
+ * Theme Require
+*/
+seaside()->require_folder('inc');
+seaside()->require_folder('inc/classes');
+seaside()->require_folder('inc/theme-options');
+seaside()->require_folder('template-parts/widgets');
+
+// Αλλαγή ονόματος αποστολέα
+add_filter('wp_mail_from_name', function($name) {
+    return 'MTRS Web Desinger'; // άλλαξέ το
+});
+
+// Αλλαγή email αποστολέα
+add_filter('wp_mail_from', function($email) {
+    return 'info@mtrs.gr'; // άλλαξέ το
+});
+
+
+
+
+// --- 4. ΑΥΤΟΜΑΤΗ ΕΙΔΟΠΟΙΗΣΗ ΛΗΞΗΣ (DAILY SCAN) ---
+
+// Προγραμματισμός του ελέγχου μία φορά την ημέρα
+if ( ! wp_next_scheduled( 'mtrs_daily_expiry_check' ) ) {
+    wp_schedule_event( time(), 'daily', 'mtrs_daily_expiry_check' );
+}
+
+add_action( 'mtrs_daily_expiry_check', 'mtrs_send_expiry_notifications' );
+
+function mtrs_send_expiry_notifications() {
+
+    global $wpdb;
+
+    $services_table = 'mtrs_active_services';
+
+    $company_name = "MTRS Web Desinger"; // άλλαξέ το
+    $renewal_link = "https://mtrs.gr/mtrs-client-dashboard/"; // άλλαξέ το
+
+    // Ελληνική μορφή ημερομηνίας
+    setlocale(LC_TIME, 'el_GR.UTF-8');
+
+    // 7, 3 και 0 ημέρες πριν
+    $check_days = array(7, 3, 0);
+
+    foreach ($check_days as $day) {
+
+        $target_date = date('Y-m-d', strtotime("+$day days"));
+
+        $services = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM $services_table WHERE expiry_date = %s",
+            $target_date
+        ));
+
+        if ($services) {
+
+            foreach ($services as $service) {
+
+                $user_info = get_userdata($service->user_id);
+                if (!$user_info) continue;
+
+                $to = $user_info->user_email;
+
+                $formatted_date = strftime('%d %B %Y', strtotime($service->expiry_date));
+
+                // Μηνύματα
+                if ($day == 7) {
+
+                    $subject = 'Υπενθύμιση Λήξης Υπηρεσίας σε 7 Ημέρες';
+
+                    $msg_text = "Σας ενημερώνουμε ότι η υπηρεσία σας \""
+                        . strtoupper($service->service_name) .
+                        "\" πρόκειται να λήξει σε 7 ημέρες.<br><br>
+                        Παρακαλούμε μεριμνήστε εγκαίρως για την ανανέωσή της, ώστε να διασφαλιστεί η απρόσκοπτη συνέχιση της παροχής της.";
+
+                    $color = "#3498db";
+
+                } elseif ($day == 3) {
+
+                    $subject = 'Ειδοποίηση: Λήξη Υπηρεσίας σε 3 Ημέρες';
+
+                    $msg_text = "Η υπηρεσία σας \""
+                        . strtoupper($service->service_name) .
+                        "\" πρόκειται να λήξει σε 3 ημέρες.<br><br>
+                        Σας συνιστούμε να προβείτε άμεσα στις απαραίτητες ενέργειες ανανέωσης.";
+
+                    $color = "#f39c12";
+
+                } else {
+
+                    $subject = 'ΕΠΕΙΓΟΝ: Λήξη Υπηρεσίας Σήμερα';
+
+                    $msg_text = "Σας ενημερώνουμε ότι η υπηρεσία σας \""
+                        . strtoupper($service->service_name) .
+                        "\" λήγει σήμερα.<br><br>
+                        Παρακαλούμε προχωρήστε άμεσα στην ανανέωση για να αποφευχθεί διακοπή.";
+
+                    $color = "#e74c3c";
+                }
+
+                // HTML Email
+                $message = '
+                <html>
+                <head>
+                <meta charset="UTF-8">
+                </head>
+                <body style="margin:0; padding:0; background-color:#f4f6f8; font-family: Arial, sans-serif;">
+                    
+                    <table width="100%" cellpadding="0" cellspacing="0" style="padding:20px;">
+                        <tr>
+                            <td align="center">
+                                
+                                <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden;">
+                                    
+                                    <!-- Header -->
+                                    <tr>
+                                        <td style="background:#2c3e50; color:#ffffff; padding:20px; text-align:center;">
+                                            <h2 style="margin:0;">'.$company_name.'</h2>
+                                        </td>
+                                    </tr>
+
+                                    <!-- Body -->
+                                    <tr>
+                                        <td style="padding:30px; color:#333;">
+                                            
+                                            <p>Αξιότιμε/η <strong>'.$user_info->display_name.'</strong>,</p>
+                                            
+                                            <p style="line-height:1.6;">
+                                                '.$msg_text.'
+                                            </p>
+
+                                            <p style="margin-top:20px;">
+                                                <strong>Ημερομηνία Λήξης:</strong><br>
+                                                '.$formatted_date.'
+                                            </p>
+
+                                            <!-- Button -->
+                                            <div style="text-align:center; margin:30px 0;">
+                                                <a href="'.$renewal_link.'" 
+                                                   style="background:'.$color.'; color:#ffffff; padding:12px 25px; text-decoration:none; border-radius:5px;">
+                                                   Ανανέωση Υπηρεσίας
+                                                </a>
+                                            </div>
+
+                                            <p>
+                                                Για οποιαδήποτε διευκρίνιση, παραμένουμε στη διάθεσή σας.
+                                            </p>
+
+                                            <p style="margin-top:30px;">
+                                                Με εκτίμηση,<br>
+                                                <strong>'.$company_name.'</strong>
+                                            </p>
+
+                                        </td>
+                                    </tr>
+
+                                    <!-- Footer -->
+                                    <tr>
+                                        <td style="background:#ecf0f1; text-align:center; padding:15px; font-size:12px; color:#777;">
+                                            © '.date('Y').' '.$company_name.'
+                                        </td>
+                                    </tr>
+
+                                </table>
+
+                            </td>
+                        </tr>
+                    </table>
+
+                </body>
+                </html>
+                ';
+
+                // Headers για HTML
+                $headers = array('Content-Type: text/html; charset=UTF-8');
+
+                wp_mail($to, $subject, $message, $headers);
+            }
+        }
+    }
+}
+
+
+
+
+
+/**
+ * MTRS MASTER CONTROL v2.0 - CLEAN EDITION
+ * Features: Wallet Manager, Service Expiry, Auto-Emails & Admin Notes
+ */
+
+// --- 1. SHORTCODE ΓΙΑ ΤΟ ΥΠΟΛΟΙΠΟ [mtrs_balance] ---
+function mtrs_get_user_balance_shortcode() {
+    if (!is_user_logged_in()) return '<span style="opacity:0.5; color:#fff;">ΣΥΝΔΕΘΕΙΤΕ</span>';
+    global $wpdb;
+    $balance = $wpdb->get_var($wpdb->prepare("SELECT balance FROM mtrs_client_balance WHERE user_id = %d", get_current_user_id()));
+    $val = ($balance) ? number_format($balance, 2) : "0.00";
+    return '<div style="display:inline-flex; align-items:center; background:#161b22; padding:6px 15px; border-radius:10px; border:1px solid #00d4ff;"><div style="width:8px; height:8px; background:#00d4ff; border-radius:2px; margin-right:8px; box-shadow:0 0 5px #00d4ff;"></div><span style="color:#fff; font-weight:bold;">' . $val . '€</span></div>';
+}
+add_shortcode('mtrs_balance', 'mtrs_get_user_balance_shortcode');
+
+// --- 2. ΔΗΜΙΟΥΡΓΙΑ ΜΕΝΟΥ ADMIN ---
+add_action('admin_menu', function() {
+    add_menu_page('MTRS Wallet', 'MTRS Wallet', 'manage_options', 'mtrs-wallet', 'mtrs_admin_wallet_page', 'dashicons-money-alt');
+});
+
+// --- 3. ΚΥΡΙΑ ΣΥΝΑΡΤΗΣΗ ΔΙΑΧΕΙΡΙΣΗΣ ---    mtrs_send_expiry_notifications(); // ΠΡΟΣΩΡΙΝΟ ΤΕΣΤ------------------------
+
+function mtrs_admin_wallet_page() {
+    global $wpdb;
+    $balance_table = 'mtrs_client_balance';
+    $services_table = 'mtrs_active_services';
+    $company_name = 'MTRS Team';
+
+    // --- 1. ΛΟΓΙΚΗ WALLET UPDATE ---
+    if (isset($_POST['update_balance'])) {
+        $u_id = intval($_POST['user_id']);
+        $amount = floatval($_POST['balance_amount']);
+        $action = $_POST['balance_action'];
+        $current = $wpdb->get_var($wpdb->prepare("SELECT balance FROM $balance_table WHERE user_id = %d", $u_id)) ?: 0;
+        $new_bal = ($action == 'add') ? $current + $amount : (($action == 'subtract') ? $current - $amount : $amount);
+        $wpdb->replace($balance_table, array('user_id' => $u_id, 'balance' => $new_bal));
+
+        $user_info = get_userdata($u_id);
+        if ($user_info) {
+            $to = $user_info->user_email;
+            $subject = 'Ενημέρωση υπολοίπου πορτοφολιού - MTRS';
+            $headers = array('Content-Type: text/html; charset=UTF-8');
+            $message = '
+            <html>
+            <head><meta charset="UTF-8"></head>
+            <body style="margin:0; padding:0; background-color:#f4f6f8; font-family: Arial, sans-serif;">
+                <table width="100%" cellpadding="0" cellspacing="0" style="padding:20px;">
+                    <tr><td align="center">
+                        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                            <tr style="background:#0d1117; text-align:center; border-bottom: 3px solid #238636;"><td style="padding:25px; color:#58a6ff;"><h1 style="margin:0; font-size:24px; text-transform:uppercase;">MTRS Control</h1></td></tr>
+                            <tr><td style="padding:40px; color:#333;">
+                                <p style="font-size:16px;">Αξιότιμε/η <strong>'.$user_info->display_name.'</strong>,</p>
+                                <p style="line-height:1.8; font-size:15px;">Σας ενημερώνουμε ότι πραγματοποιήθηκε μια αλλαγή στο υπόλοιπο του λογαριασμού σας.</p>
+                                <div style="background:#f9f9f9; padding:20px; border-radius:8px; text-align:center; margin:25px 0; border: 1px solid #eee;">
+                                    <span style="display:block; color:#777; font-size:12px; margin-bottom:5px; font-weight:bold; text-transform:uppercase;">Νέο διαθέσιμο υπόλοιπο</span>
+                                    <strong style="font-size:32px; color:#238636;">'.number_format($new_bal, 2).'€</strong>
+                                </div>
+                                <div style="text-align:center; margin:30px 0;"><a href="'.home_url('/dashboard').'" style="background:#238636; color:#ffffff; padding:15px 30px; text-decoration:none; border-radius:5px; font-weight:bold; font-size:13px;">Είσοδος στο πάνελ</a></div>
+                                <p style="margin-top:30px; font-size:14px;">Με εκτίμηση,<br><strong>'.$company_name.'</strong></p>
+                            </td></tr>
+                        </table>
+                    </td></tr>
+                </table>
+            </body>
+            </html>';
+            wp_mail($to, $subject, $message, $headers);
+        }
+        echo '<div class="notice notice-success is-dismissible" style="background:#161b22; color:#3fb950; border-left:4px solid #3fb950;"><p>Το πορτοφόλι ενημερώθηκε και στάλθηκε το email!</p></div>';
+    }
+
+    // --- 2. ΛΟΓΙΚΗ CUSTOM NOTIFICATION (ΠΑΝΟΜΟΙΟΤΥΠΟ EMAIL) ---
+    if (isset($_POST['send_custom_notification'])) {
+        $u_id = intval($_POST['notif_user_id']);
+        $type = $_POST['notif_type'];
+        $user_info = get_userdata($u_id);
+
+        if ($user_info) {
+            $to = $user_info->user_email;
+            $headers = array('Content-Type: text/html; charset=UTF-8');
+            
+            if ($type == 'general_maintenance') {
+                $subject = 'Προγραμματισμένη Γενική Συντήρηση - MTRS';
+                $title_text = 'ΓΕΝΙΚΗ ΣΥΝΤΗΡΗΣΗ';
+                $msg_body = 'Σας ενημερώνουμε ότι έχει προγραμματιστεί γενική συντήρηση των συστημάτων σας για την εξασφάλιση της ορθής και ασφαλούς λειτουργίας τους.';
+            } else {
+                $subject = 'Ενημέρωση Συστήματος - MTRS';
+                $title_text = 'ΕΝΗΜΕΡΩΣΗ ΣΥΣΤΗΜΑΤΟΣ';
+                $msg_body = 'Έχετε μια νέα σημαντική ενημέρωση από την ομάδα υποστήριξης της MTRS σχετικά με τις υπηρεσίες σας.';
+            }
+
+            $message = '
+            <html>
+            <head><meta charset="UTF-8"></head>
+            <body style="margin:0; padding:0; background-color:#f4f6f8; font-family: Arial, sans-serif;">
+                <table width="100%" cellpadding="0" cellspacing="0" style="padding:20px;">
+                    <tr><td align="center">
+                        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+                            <!-- Header -->
+                            <tr style="background:#0d1117; text-align:center; border-bottom: 3px solid #d29922;"><td style="padding:25px; color:#58a6ff;"><h1 style="margin:0; font-size:24px; text-transform:uppercase;">MTRS Control</h1></td></tr>
+                            <!-- Body -->
+                            <tr><td style="padding:40px; color:#333;">
+                                <p style="font-size:16px;">Αξιότιμε/η <strong>'.$user_info->display_name.'</strong>,</p>
+                                <p style="line-height:1.8; font-size:15px;">'.$msg_body.'</p>
+                                
+                                <div style="background:#fff8e6; padding:20px; border-radius:8px; text-align:center; margin:25px 0; border: 1px solid #fde6b1;">
+                                    <span style="display:block; color:#b7791f; font-size:12px; margin-bottom:5px; font-weight:bold; text-transform:uppercase;">Θέμα ειδοποίησης</span>
+                                    <strong style="font-size:22px; color:#d29922;">'.$title_text.'</strong>
+                                </div>
+
+                                <div style="text-align:center; margin:30px 0;"><a href="'.home_url('/dashboard').'" style="background:#30363d; color:#ffffff; padding:15px 30px; text-decoration:none; border-radius:5px; font-weight:bold; font-size:13px;">Είσοδος στο πάνελ</a></div>
+                                
+                                <p style="font-size:13px; color:#666;">Παραμένουμε στη διάθεσή σας για οποιαδήποτε απορία ή διευκρίνιση.</p>
+                                <p style="margin-top:30px; font-size:14px;">Με εκτίμηση,<br><strong>'.$company_name.'</strong></p>
+                            </td></tr>
+                            <!-- Footer -->
+                            <tr><td style="background:#f4f6f8; text-align:center; padding:20px; font-size:11px; color:#999; border-top: 1px solid #eee;">© '.date('Y').' '.$company_name.' | Αυτόματο μήνυμα συστήματος</td></tr>
+                        </table>
+                    </td></tr>
+                </table>
+            </body>
+            </html>';
+
+            wp_mail($to, $subject, $message, $headers);
+            echo '<div class="notice notice-success is-dismissible" style="background:#161b22; color:#d29922; border-left:4px solid #d29922;"><p>Η ειδοποίηση στάλθηκε επιτυχώς στον πελάτη!</p></div>';
+        }
+    }
+
+    // --- 3. ΛΟΓΙΚΗ SERVICE UPDATE ---
+    if (isset($_POST['update_service'])) {
+        $s_id = intval($_POST['service_id']);
+        $new_date = sanitize_text_field($_POST['new_date']);
+        $notes = sanitize_textarea_field($_POST['service_notes']);
+        $wpdb->update($services_table, array('expiry_date' => $new_date, 'notes' => $notes), array('id' => $s_id));
+        echo '<div class="notice notice-success is-dismissible" style="background:#161b22; color:#58a6ff; border-left:4px solid #58a6ff;"><p>Η υπηρεσία ενημερώθηκε!</p></div>';
+    }
+
+    $services = $wpdb->get_results("SELECT * FROM $services_table ORDER BY expiry_date ASC");
+    ?>
+
+    <style>
+        :root { --mtrs-bg: #0d1117; --mtrs-card: #161b22; --mtrs-border: #30363d; --mtrs-accent: #58a6ff; --mtrs-text: #c9d1d9; }
+        .mtrs-wrapper { background: var(--mtrs-bg); color: var(--mtrs-text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 20px; border-radius: 12px; margin-top: 20px; }
+        .mtrs-grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+        .mtrs-card { background: var(--mtrs-card); border: 1px solid var(--mtrs-border); border-radius: 8px; overflow: hidden; margin-bottom: 20px; }
+        .card-header { padding: 12px 15px; border-bottom: 1px solid var(--mtrs-border); font-size: 11px; font-weight: 800; text-transform: uppercase; color: #8b949e; display: flex; justify-content: space-between; align-items: center; letter-spacing: 1px; }
+        .card-body { padding: 15px; }
+        .mtrs-label { display: block; font-size: 10px; color: #8b949e; margin-bottom: 5px; font-weight: 700; text-transform: uppercase; }
+        .mtrs-field { width: 100%; background: #0d1117; border: 1px solid var(--mtrs-border); color: #fff; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 12px; }
+        .btn-action { width: 100%; padding: 12px; border-radius: 6px; border: none; font-weight: 800; cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+        .btn-blue { background: #238636; color: #fff; } 
+        .btn-gray { background: #30363d; color: #c9d1d9; }
+        .btn-orange { background: #d29922; color: #fff; }
+        .mtrs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .mtrs-table th { text-align: left; padding: 12px; color: #8b949e; font-size: 10px; text-transform: uppercase; border-bottom: 1px solid var(--mtrs-border); background: #1c2128; }
+        .mtrs-table td { padding: 12px; border-bottom: 1px solid #21262d; }
+        .pill { padding: 3px 8px; border-radius: 4px; font-size: 9px; font-weight: 900; }
+        .st-active { color: #3fb950; background: rgba(63,185,80,0.1); border: 1px solid rgba(63,185,80,0.3); }
+        .st-expired { color: #f85149; background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.3); }
+        @media (max-width: 1000px) { .mtrs-grid { grid-template-columns: 1fr; } }
+    </style>
+
+    <div class="wrap mtrs-wrapper">
+        <header style="margin-bottom: 25px; border-bottom: 1px solid #30363d; padding-bottom: 15px;">
+            <h1 style="color:#fff; margin:0; font-weight: 900; font-size: 22px; text-transform: uppercase;">MTRS <span style="color:var(--mtrs-accent)">Master Control</span></h1>
+        </header>
+
+                <!-- SERVICE -->
+        <div class="mtrs-grid">
+            <div class="mtrs-sidebar">
+                <!-- WALLET -->
+                <div class="mtrs-card" style="border-top: 3px solid #238636;">
+                    <div class="card-header">Πορτοφόλι</div>
+                    <div class="card-body">
+                        <form method="POST">
+                            <label class="mtrs-label">User ID Πελάτη</label>
+                            <input type="number" name="user_id" class="mtrs-field" required>
+                            <label class="mtrs-label">Ενέργεια</label>
+                            <select name="balance_action" class="mtrs-field">
+                                <option value="add">Πρόσθεση (+)</option>
+                                <option value="subtract">Αφαίρεση (-)</option>
+                                <option value="set">Ορισμός (Set)</option>
+                            </select>
+                            <label class="mtrs-label">Ποσό (€)</label>
+                            <input type="number" step="0.01" name="balance_amount" class="mtrs-field" required>
+                            <button type="submit" name="update_balance" class="btn-action btn-blue">Ενημέρωση & Email</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- SERVICE -->
+                <div class="mtrs-card" style="border-top: 3px solid var(--mtrs-accent);">
+                    <div class="card-header">Υπηρεσία</div>
+                    <div class="card-body">
+                        <form method="POST">
+                            <label class="mtrs-label">Ενέργεια</label>
+                            <select name="service_action" class="mtrs-field" style="color:var(--mtrs-accent); font-weight:bold;">
+                                <option value="update">ΕΝΗΜΕΡΩΣΗ / ΠΡΟΣΘΕΣΗ (+)</option>
+                                <option value="delete">ΔΙΑΓΡΑΦΗ ΥΠΗΡΕΣΙΑΣ (-)</option>
+                            </select>
+                
+                            <label class="mtrs-label">Service ID (SID)</label>
+                            <input type="number" name="service_id" class="mtrs-field" required placeholder="π.χ. 45">
+                            
+                            <div id="service_extra_fields">
+                                <label class="mtrs-label">Νέα Ημερομηνία Λήξης</label>
+                                <input type="date" name="new_date" class="mtrs-field">
+                                
+                                <label class="mtrs-label">Σημειώσεις</label>
+                                <textarea name="service_notes" class="mtrs-field" style="height:50px; resize:none;"></textarea>
+                            </div>
+                
+                            <button type="submit" name="update_service" class="btn-action btn-gray">Εκτέλεση Ενέργειας</button>
+                        </form>
+                    </div>
+                </div>
+                
+                <script>
+                // Μικρό script για να κρύβει τα πεδία αν επιλέξεις "Διαγραφή"
+                document.querySelector('select[name="service_action"]').addEventListener('change', function() {
+                    const fields = document.getElementById('service_extra_fields');
+                    fields.style.opacity = (this.value === 'delete') ? '0.3' : '1';
+                    fields.style.pointerEvents = (this.value === 'delete') ? 'none' : 'auto';
+                });
+                </script>
+
+
+                <!-- NOTIFICATIONS -->
+                <div class="mtrs-card" style="border-top: 3px solid #d29922;">
+                    <div class="card-header">Ειδοποίηση <span>Notifications</span></div>
+                    <div class="card-body">
+                        <form method="POST">
+                            <label class="mtrs-label">User ID Πελάτη</label>
+                            <input type="number" name="notif_user_id" class="mtrs-field" required>
+                            <label class="mtrs-label">Θέμα Ειδοποίησης</label>
+                            <select name="notif_type" class="mtrs-field">
+                                <option value="general_maintenance">Γενική Συντήρηση</option>
+                                <option value="update">Ενημέρωση Συστήματος</option>
+                            </select>
+                            <button type="submit" name="send_custom_notification" class="btn-action btn-orange">Αποστολή Email</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TABLE -->
+            <div class="mtrs-main">
+                <div class="mtrs-card">
+                    <div class="card-header" style="background: #1c2128;">
+                        <span>ΟΛΕΣ ΟΙ ΕΝΕΡΓΕΣ ΥΠΗΡΕΣΙΕΣ ΜΕ ΛΗΞΗ</span>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table class="mtrs-table">
+                            <thead>
+                                <tr>
+                                    <th style="padding-left:15px;">ΠΕΛΑΤΗΣ</th>
+                                    <th>SID</th>
+                                    <th>ΥΠΗΡΕΣΙΑ</th>
+                                    <th>ΛΗΞΗ</th>
+                                    <th>STATUS</th>
+                                    <th style="text-align:right; padding-right:15px;">NOTES</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php if($services): foreach($services as $s): 
+                                    // ΦΙΛΤΡΟ: Εμφανίζει ΜΟΝΟ όσες έχουν έγκυρη ημερομηνία λήξης
+                                    if($s->expiry_date == '0000-00-00' || empty($s->expiry_date)) continue;
+            
+                                    $s_name = strtoupper($s->service_name);
+                                    $diff = (strtotime($s->expiry_date) - time()) / 86400;
+                                    $st = ($diff < 0) ? "EXPIRED" : "ACTIVE";
+                                    $cl = ($diff < 0) ? "st-expired" : "st-active";
+                                    
+                                    $customer = !empty($s->customer_name) ? $s->customer_name : "User ID: " . $s->user_id;
+                                ?>
+                                <tr>
+                                    <td style="padding-left:15px;"><strong><?php echo esc_html($customer); ?></strong></td>
+                                    <td style="color:#8b949e; font-family:monospace;">#<?php echo $s->id; ?></td>
+                                    <td style="font-weight:700; color:#fff;"><?php echo $s_name; ?></td>
+                                    <td><?php echo date('d/m/Y', strtotime($s->expiry_date)); ?></td>
+                                    <td><span class="pill <?php echo $cl; ?>"><?php echo $st; ?></span></td>
+                                    <td style="text-align:right; padding-right:15px; color:#8b949e; font-size:11px; max-width:150px;"><?php echo esc_html($s->notes); ?></td>
+                                </tr>
+                                <?php endforeach; endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+
+
+        </div>
+    </div>
+    <?php
+}
